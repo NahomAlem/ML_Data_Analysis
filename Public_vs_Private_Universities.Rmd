@@ -1,0 +1,676 @@
+---
+title: "Public Vs Private Schools"
+author:
+- Nahom Abraha
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    always_allow_html: yes
+    dev: svg
+    df_print: kable
+    fig_caption: no
+    number_sections: no
+    self_contained: yes
+    smart: yes
+    theme: default
+    toc: no
+  pdf_document:
+    dev: pdf
+    df_print: kable
+    fig_caption: no
+    highlight: tango
+    number_sections: no
+    toc: no
+  word_document:
+    toc: no
+geometry: margin=1in
+fontsize: 11pt
+documentclass: article
+---
+
+```{r setup, include = FALSE}
+# DO NOT ALTER THIS CHUNK
+# Set knitr options
+knitr::opts_chunk$set(
+  echo = FALSE,
+  eval = TRUE,
+  cache = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 5,
+  fig.asp = 0.618,
+  fig.align = "center",
+  out.width = "80%",
+  dpi = 120
+)
+# Load required packages
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(infer))
+suppressPackageStartupMessages(library(modelr))
+suppressPackageStartupMessages(library(broom))
+suppressPackageStartupMessages(library(shiny))
+# Load dataset
+
+college <- read_csv("C:/Users/nahom/Documents/GitHub/College_Scoreboard_data.csv")
+```
+
+```{r}
+college_reduced <- college %>%
+select(
+    CONTROL, NPT4_PUB, NPT4_PRIV,
+    GRAD_DEBT_MDN10YR_SUPP, PCTFLOAN,
+    PCTPELL,MD_EARN_WNE_P10
+    ) %>%
+  rename(
+   ownership = CONTROL,
+   avg_net_price.public =  NPT4_PUB,
+   avg_net_price.private = NPT4_PRIV,
+   median_debt_monthly_payments = GRAD_DEBT_MDN10YR_SUPP,
+   federal_loan_rate = PCTFLOAN,
+   pell_grant_rate = PCTPELL,
+   median_salary = MD_EARN_WNE_P10
+  )
+```
+
+```{r}
+college_reduced1 <- college_reduced %>%
+  mutate(
+  ownership = recode(
+  ownership,
+  `1` = "public",
+  `2` = "private",
+  `3` = "private"
+      )
+  )
+# college_reduced1 %>%
+#   head() %>%
+#   print()
+```
+
+```{r}
+proper_type <- college_reduced1 %>% 
+  mutate(
+    median_debt_monthly_payments = as.numeric(median_debt_monthly_payments),
+    federal_loan_rate = as.numeric(federal_loan_rate),
+    pell_grant_rate = as.numeric(pell_grant_rate),
+    median_salary = as.numeric(median_salary),
+    avg_net_price.public = as.numeric(avg_net_price.public),
+    avg_net_price.private = as.numeric(avg_net_price.private),
+    ownership = as.character(ownership)
+  )
+# proper_type%>%
+#   head() %>%
+#   print()
+```
+
+```{r}
+proper_type <- proper_type %>%
+  mutate(
+    avg_net_price_both = case_when(
+    is.numeric(avg_net_price.public) & 
+    is.na(avg_net_price.private) ~ avg_net_price.public,
+    is.na(avg_net_price.public) & 
+    is.numeric(avg_net_price.private) ~ avg_net_price.private
+        )
+  )%>%
+  select(
+    ownership,avg_net_price.public,avg_net_price.private,
+    avg_net_price_both,median_salary,federal_loan_rate,
+    pell_grant_rate,median_debt_monthly_payments
+  )
+  # proper_type %>%
+  #   print()
+```
+
+
+```{r}
+# Creating a new, smaller dataframe to represent income to debt ratio
+# for public and private schools by subsetting of the proper_type dataframe 
+Income_Debt <- proper_type %>%
+  select(
+    ownership,
+    median_debt_monthly_payments,
+    median_salary
+    ) %>%
+  filter(
+       !is.na(median_debt_monthly_payments) &
+       !is.na(median_salary) &
+       (ownership == "private" | ownership == "public")
+       ) %>%
+  # Creating a new variable to represent income to debt ratio
+  mutate(
+      income_to_debt_ratio = 
+      (median_salary)/(12*median_debt_monthly_payments)
+        )
+# Income_Debt %>%
+#   head() %>%
+#    print()
+```
+
+###                  Box Plot of the Percentage of Students Who Received Pell Grant
+```{r, fig.height=8, fig.width=8}
+proper_type %>%
+  ggplot() +
+  geom_boxplot(
+    mapping = aes(
+      x = ownership, y = pell_grant_rate, color = ownership
+    )
+  ) +
+    labs(
+      y = "Percentage of Pll Grant Recipients"
+         ) + 
+  theme(plot.title = element_text(size = 13, face = "bold")) + 
+  theme_classic()  # Classic theme
+```
+
+###                    Box Plot of the average net price for public and private schools 
+```{r fig.height = 8, fig.width = 8}
+proper_type %>%
+  ggplot()+
+  geom_boxplot(mapping = aes(x = ownership, y = avg_net_price_both, color = ownership)) +
+    labs(
+      y = 'Average Net Price'
+         ) + 
+  theme(plot.title = element_text(size = 13, face = "bold")) + 
+  theme_classic() 
+```
+
+###CDF of the mean median earnings for private and public institutions
+```{r}
+income_cdf <-  proper_type %>%
+ggplot() +
+geom_step(
+mapping = aes(x = median_salary, color = ownership),
+stat = "ecdf"
+) +
+labs(
+y = "CDF") +
+theme(plot.title = element_text(size = 14, face = "bold")) +
+    theme_classic()  # Classic theme
+# + 
+#   annotation_logticks() 
+income_cdf
+```
+
+
+###Log-transformed CDF of the mean median earnings for private and public institutions
+```{r}
+income_cdf <-  proper_type %>%
+ggplot() +
+geom_step(
+mapping = aes(x = median_salary, color = ownership),
+stat = "ecdf"
+) +
+  scale_x_log10(
+     breaks = scales::trans_breaks("log10", function(x) 10^x),
+   labels = scales::trans_format("log10", scales::math_format(10^.x))
+  ) +
+labs(
+y = "CDF") +
+theme(plot.title = element_text(size = 14, face = "bold")) +
+    theme_classic()  # Classic theme
+# + 
+#   annotation_logticks() 
+income_cdf
+```
+
+## 3. 4 Hypothesis Test for Median Salary of Students
+
+```{r}
+college_reduced2 <- college_reduced1 %>% 
+  mutate(median_salary = as.numeric(median_salary)) %>%
+  filter(!is.na(ownership) & !is.na(median_salary))%>%
+  select(ownership,median_salary)
+public_private_summary_stat <- college_reduced2 %>% 
+  group_by(ownership) %>% 
+  summarize(mean_earnings = mean(median_salary)) 
+public_private_summary_stat
+```
+
+```{r}
+public_private_mean_earning <- public_private_summary_stat %>%
+  pull(mean_earnings)
+public_mean_earning <- public_private_mean_earning[2] 
+private_mean_earning <- public_private_mean_earning[1]
+```
+
+```{r}
+diff_in_mean_earnings <- public_mean_earning - private_mean_earning
+cat("The observed value", diff_in_mean_earnings, sep = " = $")
+```
+
+```{r}
+public_private_mean_earnings_null <- college_reduced2 %>% 
+  specify(formula = median_salary ~ ownership) %>% 
+  hypothesize(null = "independence") %>% 
+  generate(reps = 10000, type = "permute") %>% 
+  calculate(stat = "diff in means", order = combine("public", "private")) 
+```
+
+
+```{r}
+public_private_p_value_two_sided <- public_private_mean_earnings_null %>%
+  get_p_value(obs_stat = diff_in_mean_earnings, direction = "both")
+public_private_p_value_two_sided
+```
+
+```{r}
+public_private_mean_earnings_null %>% 
+  visualize() + 
+  shade_p_value(obs_stat = diff_in_mean_earnings, direction = "both")+ 
+  labs( x = "difference in means", 
+  title = "Difference in mean earnings null distribution" ) + 
+  theme(plot.title = element_text(size = 8, face = "bold"))
+```
+
+
+## 3.5 Using the 95% Confidence Interval 
+
+```{r}
+public_private_mean_earnings_bootstrap <- college_reduced2 %>% 
+  specify(formula = median_salary ~ ownership) %>%
+  generate(reps = 10000, type = "bootstrap") %>% 
+  calculate(stat = "diff in means", order = combine("public", "private")) 
+```
+
+```{r, include = FALSE}
+public_private_mean_earnings_bootstrap %>% 
+  visualize() + 
+  labs( x = "difference in means", 
+  title = "Difference in mean earnings bootstrap distribution" ) +
+  theme(plot.title = element_text(size = 8, face = "bold"))
+```
+
+
+```{r}
+public_private_mean_earnings_ci95 <- public_private_mean_earnings_bootstrap %>%
+ get_confidence_interval()
+public_private_mean_earnings_ci95
+```
+
+
+```{r}
+public_private_mean_earnings_bootstrap %>% 
+  visualize() + 
+  shade_confidence_interval( endpoints = public_private_mean_earnings_ci95 ) + 
+  labs( x = "difference in median means",
+  title = "Difference in mean median earnings 95% confidence interval" )+    
+  theme(plot.title = element_text(size = 8, face = "bold"))
+```
+
+###Histogram of the Debt Ratio of Students Working and Not Enrolled 10 Years After Entry
+
+```{r fig.width=8, fig.height=8}
+hist_plot <- Income_Debt %>%
+  ggplot() +
+  geom_histogram(mapping = 
+  aes(income_to_debt_ratio, fill = ownership),alpha = 0.5, binwidth  = 6
+  )+
+ scale_x_continuous(breaks = seq(0,300,25)) +
+  labs(
+x = 'Income to debt Ratio', y = "Proportion") +
+theme(plot.title = element_text(size = 13, face = "bold"))
+hist_plot
+```
+
+```{r, include=FALSE}
+public <- subset(
+  Income_Debt, ownership == 
+  "public", select = c("ownership"))
+private <- subset(Income_Debt, ownership ==
+                    "private", select = "ownership")
+nrow(public)
+nrow(private)
+```
+
+###Income to debt Ratio of Students Working and Not Enrolled 10 Years After Entry
+```{r fig.width=8, fig.height=7}
+density_plot <- Income_Debt %>%
+  ggplot() +
+  geom_density(mapping = 
+  aes(income_to_debt_ratio, color = ownership),alpha = 0.5
+  )+
+ scale_x_continuous(breaks = seq(0,300,25)) +
+  labs(
+x = 'Income to debt Ratio', y = "Proportion") +
+theme(plot.title = element_text(size = 13, face = "bold"))
+density_plot <- ggplotly(density_plot)
+density_plot
+```
+
+
+###Income to debt Ratio of Students Working and Not Enrolled 10 Years After Entry
+```{r, fig.height=7, fig.width=8, include = FALSE}
+density_plot_log <- Income_Debt %>%
+  ggplot() +
+  geom_density(mapping = 
+  aes(income_to_debt_ratio, color = ownership),alpha = 0.5
+  )+
+ scale_x_log10() +
+  labs(
+x = 'Log-Transformed Income to debt Ratio', y = "Proportion") +
+theme(plot.title = element_text(size = 11, face = "bold")) + 
+theme_classic()  # Classic theme
+density_plot_log <- ggplotly(density_plot_log)
+density_plot_log
+```
+
+
+###Scatter Plot of Median Income Versus Yearly Debt Payments 10 Years after Entry to Institution
+```{r fig.height = 7, fig.width = 8}
+dept_income_plot <- Income_Debt %>%
+  ggplot(
+    mapping = 
+  aes(y = median_salary, x = median_debt_monthly_payments*12,
+      shape = ownership,color = ownership),alpha = 0.3
+  ) +
+  geom_point() +
+  labs(
+       x = 'Median Yearly Debt Payments',
+       y = 'Median Salary')+
+    scale_x_log10() +
+    scale_y_log10()+
+  theme(plot.title = element_text(size = 15, face = 'bold')) +
+    theme_classic() 
+# Adding a horizontal and a vertical reference lines
+  dept_income_plot + geom_hline(yintercept = (3*10**4),
+             linetype = 2, color = 'red', size = 2)+
+    geom_vline(xintercept = (1500),
+             linetype = 2, color = 'green', size = 2)
+```
+
+```{r fig.height = 7, fig.width = 8, include=FALSE}
+# Linear regression of median salary and average net price
+linear_regression <- lm(median_salary ~ avg_net_price_both, data = proper_type)
+intercept_slope <- coefficients(linear_regression)
+# Equation of the regression line
+reg_line_equation <- paste0("y = ", round(intercept_slope[2],3), "*x + ", 
+                            round(intercept_slope[1],3))
+earn_price <- proper_type %>%
+  ggplot(
+    mapping = aes(
+      x = avg_net_price_both, y = median_salary, 
+      color = ownership
+      ),alpha = 0.2
+  ) +
+  geom_point() +
+  # scale_x_log10()+
+  # scale_y_log10()+
+  # scale_y_continuous(limits = c(0,75000)) +
+  # 
+  # scale_y_continuous(limits = c(0,150000)) +
+  labs(
+    x = 'Average Net Price', y = 'Meadian Salary'
+    ) +
+  theme(plot.title = element_text(size = 13, face = "bold")) +
+    theme_classic()  # Classic theme
+earn_price + geom_abline(intercept = round(intercept_slope[1],3), 
+                         slope = round(intercept_slope[2],3))+
+  ggtitle(reg_line_equation)
+```
+
+## 3.8 Types of Degree Programs Offered
+
+```{r}
+# Categorizing various degree programs as one of four categories
+degree_programs_rate <-  college %>%
+  transmute(
+    CONTROL, # Ownership variable
+    
+    # Below are the variable names that are given in the original dataframe
+    # The variable names are not user friendly, so I change them in the rename fucntion 
+    
+    
+    # List of degree programs considered as Business and Law
+    PCIP01, PCIP03, PCIP04, PCIP05,
+    
+    # List of degree programs considered as STEM
+    PCIP43, PCIP44, PCIP45, PCIP46, PCIP47, PCIP48, 
+    PCIP49, PCIP50, PCIP51, PCIP52, PCIP54,
+    
+    # List of degree programs considered as Humanities
+    PCIP09, PCIP10, PCIP11, PCIP12, PCIP13, 
+    PCIP14,PCIP15, PCIP16, PCIP19, PCIP22,
+    PCIP23, PCIP24, PCIP25, PCIP26, PCIP27,
+    
+    # List of degree programs considered as other
+    PCIP29, PCIP30, PCIP31, PCIP38,
+    PCIP39, PCIP40, PCIP41, PCIP42
+    
+  ) %>%
+  rename( # Renaming all the Variables
+    
+    ownership = CONTROL,
+    
+    # Bussiness and Law
+    percentage_agriculture =  PCIP01,
+    percentage_resources = PCIP03,
+    percentage_architecture = PCIP04,
+    percentage_ethnic_cultural_gender = PCIP05,
+    
+    # STEM
+    percentage.security_law_enforcement	= PCIP43,
+    percentage.public_administration_social_service	= PCIP44,
+    percentage.social_science	= PCIP45,
+    percentage.construction	= PCIP46,
+    percentage.mechanic_repair_technology =	PCIP47,
+    percentage.precision_production	= PCIP48,
+    percentage.transportation	= PCIP49,
+    percentage.visual_performing	= PCIP50,
+    percentage.health	= PCIP51,
+    percentage.business_marketing	= PCIP52,
+    percentage.history	= PCIP54,
+    
+    # Humanities
+    percentage.communication = PCIP09,
+    percentage.communications_technology = PCIP10,
+    percentage.computer = PCIP11,
+    percentage.personal_culinary = PCIP12,
+    percentage.education =  PCIP13,
+    percentage.engineering = PCIP14,
+    percentage.engineering_technology = PCIP15,
+    percentage.language = PCIP16,
+    percentage.family_consumer_science = PCIP19,
+    percentage.legal =  PCIP22,
+    percentage.english = PCIP23,
+    percentage.humanities = PCIP24,
+    percentage.library =  PCIP25,
+    percentage.biological = PCIP26,
+    percentage.mathematics = PCIP27,
+    
+    # other
+    percentage.military = PCIP29,
+    percentage.multidiscipline = PCIP30,
+    percentage.parks_recreation_fitness = PCIP31,
+    percentage.philosophy_religious = PCIP38,
+    percentage.theology_religious_vocation = PCIP39,
+    percentage.physical_science = PCIP40,
+    percentage.science_technology = PCIP41,
+    percentage.psychology = PCIP42
+    
+  ) %>%
+  mutate( # Giving the Proper Data Types for all the Variables
+  ownership = recode(
+  ownership,
+  `1` = "public",
+  `2` = "private",
+  `3` = "private"
+      ),
+  # Adding the proportionl value of all degree programs considered as Business and Law
+    percentage_agriculture =  as.numeric(percentage_agriculture),
+    percentage_resources = as.numeric(percentage_resources),
+    percentage_architecture = as.numeric(percentage_architecture),
+    percentage_ethnic_cultural_gender = as.numeric(percentage_ethnic_cultural_gender),
+  
+  # Adding the proportionl value of all degree programs considered as STEM 
+  percentage.security_law_enforcement	= 
+  as.numeric(percentage.security_law_enforcement),
+  percentage.public_administration_social_service	= 
+  as.numeric(percentage.public_administration_social_service),
+  percentage.social_science	= 
+  as.numeric(percentage.social_science),
+  percentage.construction	= 
+  as.numeric(percentage.construction),
+  percentage.mechanic_repair_technology =	
+  as.numeric(percentage.mechanic_repair_technology),
+  percentage.precision_production	= 
+  as.numeric(percentage.precision_production),
+  percentage.transportation	= 
+  as.numeric(percentage.transportation),
+  percentage.visual_performing	= 
+  as.numeric(percentage.visual_performing),
+  percentage.health	= 
+  as.numeric(percentage.health),
+  percentage.business_marketing	= 
+  as.numeric(percentage.business_marketing),
+  percentage.history	= 
+  as.numeric(percentage.history),
+  
+  # Adding the proportionl value of all degree programs considered as Humanities
+  percentage.communication = 
+  as.numeric(percentage.communication),
+  percentage.communications_technology = 
+  as.numeric(percentage.communications_technology),
+  percentage.computer = 
+  as.numeric(percentage.computer),
+  percentage.personal_culinary = 
+  as.numeric(percentage.personal_culinary),
+  percentage.education =  
+  as.numeric(percentage.education),
+  percentage.engineering = 
+  as.numeric(percentage.engineering),
+  percentage.engineering_technology = 
+  as.numeric(percentage.engineering_technology),
+  percentage.language = 
+  as.numeric(percentage.language),
+  percentage.family_consumer_science = 
+  as.numeric(percentage.family_consumer_science),
+  percentage.legal =  
+  as.numeric(percentage.legal),
+  percentage.english = 
+  as.numeric(percentage.english),
+  percentage.humanities = 
+  as.numeric(percentage.humanities),
+  percentage.library =  
+  as.numeric(percentage.library),
+  percentage.biological = 
+  as.numeric(percentage.biological),
+  percentage.mathematics = 
+  as.numeric(percentage.mathematics),
+  
+  # Adding the proportionl value of all degree programs considered as Other
+  percentage.military = 
+  as.numeric(percentage.military),
+  percentage.multidiscipline = 
+  as.numeric(percentage.multidiscipline),
+  percentage.parks_recreation_fitness = 
+  as.numeric(percentage.parks_recreation_fitness),
+  percentage.philosophy_religious = 
+  as.numeric(percentage.philosophy_religious),
+  percentage.theology_religious_vocation = 
+  as.numeric(percentage.theology_religious_vocation),
+  percentage.physical_science = 
+  as.numeric(percentage.physical_science),
+  percentage.science_technology = 
+  as.numeric(percentage.science_technology),
+  percentage.psychology = 
+  as.numeric(percentage.psychology)
+  
+  ) 
+```
+
+
+```{r}
+degree_programs_rate <- degree_programs_rate %>%
+  mutate(
+    # Total Percentage for Business and Law
+    total_bus_law = (
+    percentage_agriculture +
+    percentage_resources +
+    percentage_architecture + 
+    percentage_ethnic_cultural_gender),
+    
+    # Total Percentage for STEM
+   total_stem = (
+    percentage.security_law_enforcement + 
+    percentage.public_administration_social_service +
+    percentage.social_science	+
+    percentage.construction	+
+    percentage.mechanic_repair_technology +
+    percentage.precision_production	+
+    percentage.transportation	+
+    percentage.visual_performing +
+    percentage.health	+
+    percentage.business_marketing	+
+    percentage.history),
+    
+    # Total Percentage for Humanities
+    total_humanities = (
+    percentage.communication +
+    percentage.communications_technology +
+    percentage.computer +
+    percentage.personal_culinary +
+    percentage.education +
+    percentage.engineering +
+    percentage.engineering_technology +
+    percentage.language +
+    percentage.family_consumer_science +
+    percentage.legal +
+    percentage.english +
+    percentage.humanities +
+    percentage.library +
+    percentage.biological +
+    percentage.mathematics),
+    
+    # Total Percentage for Other Degree Programs
+    total_others = (
+    percentage.military +
+    percentage.multidiscipline +
+    percentage.parks_recreation_fitness +
+    percentage.philosophy_religious +
+    percentage.theology_religious_vocation +
+    percentage.physical_science +
+    percentage.science_technology +
+    percentage.psychology)
+  )
+  
+# degree_programs_rate %>%
+#   head()  %>%
+#   print()
+```
+
+```{r}
+degree_types_percentage <-  degree_programs_rate[,c('ownership','total_bus_law',
+                                'total_stem','total_humanities','total_others')]
+degree_proportion_table <-  degree_programs_rate %>%
+  group_by(ownership) %>%
+  summarize(
+    bus_and_law = mean(total_bus_law, na.rm = T),
+    stem = mean(total_stem, na.rm = T),
+    humanities = mean(total_humanities, na.rm = T),
+    others = mean(total_others, na.rm = T),
+    toal = bus_and_law + stem + humanities + others
+  )
+#degree_proportion_table 
+```
+
+###                               Degree Proportions Offered by Public Schools
+```{r}
+proportion_public <- subset(degree_proportion_table,
+                           ownership == 'public', select = c(-1,-6))
+proportion_public <- as.numeric(c(proportion_public))
+name = c("bus_and_law","stem",'humanities','others')
+lbls <- paste(name,' ',round(proportion_public*100,2),'%')
+pie(proportion_public,labels=lbls)
+```
+
+###                                Degree Proportions Offered by Private Schools
+```{r}
+proportion_private <- subset(degree_proportion_table,
+                           ownership == 'private', select = c(-1,-6))
+proportion_private <- as.numeric(c(proportion_private))
+name = c("bus_and_law","stem",'humanities','others')
+lbls <- paste(name,' ',round(proportion_private*100,2),'%')
+pie(proportion_private,labels=lbls)
+```
